@@ -4,7 +4,7 @@
 //
 
 import CoreImage
-import FastVLM
+import Kairos
 import Foundation
 import MLX
 import MLXLMCommon
