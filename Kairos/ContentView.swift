@@ -14,31 +14,66 @@ struct ContentView: View {
     @State private var showingCamera = false
     @State private var sourceType: UIImagePickerController.SourceType = .photoLibrary
     @State private var isProcessing = false
-    @State private var eventData: EventData?
+    @State private var eventData: [EventData] = []
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var showingSuccess = false
     @State private var showingEventPreview = false
     
-    private let eventPrompt = """
-    Extract event information from this image and return ONLY a list of JSON object with the following structure:
-    [{
-        "title": "Event title",
-        "location": "Event location (optional)",
-        "start_date": "YYYY-MM-DDTHH:MM:SS (ISO 8601 format)",
-        "end_date": "YYYY-MM-DDTHH:MM:SS (ISO 8601 format, optional)",
-        "description": "Event description (optional)",
-        "all_day": false
-    }]
+    private var eventPrompt: String {
+        return """
+        You are a calendar event extraction system. Your task is to analyze text extracted from images and identify all calendar events, meetings, appointments, deadlines, or time-sensitive activities.
+
+        INSTRUCTIONS:
+        - Parse the provided image for ANY event information including meetings, appointments, deadlines, classes, social events, reminders, etc.
+        - Return ONLY the raw JSON object - NO markdown formatting, NO code blocks, NO backticks, NO explanations
+
+        OUTPUT REQUIREMENTS:
+        - Respond with ONLY the JSON object - no ```json``` formatting
+        - If no events found, return []
+
+        JSON SCHEMA:
+        [
+            {
+              "title": "string (required) - descriptive event name",
+              "location": "string (optional) - physical or virtual address or location name",
+              "notes": "string (optional) - additional details, context, web-searched info like airport details, venue info, contact details, performers"
+            }
+        ] 
+        
+        CRITICAL: Return only the raw JSON object without any markdown formatting or code block syntax.
+        """
+    }
     
-    Important:
-    - Return ONLY valid JSON, no additional text
-    - Use ISO 8601 format for dates (YYYY-MM-DDTHH:MM:SS)
-    - If the date doesn't specify a time, set all_day to true
-    - If end_date is not specified, leave it null
-    - Extract all visible event details from the image
-    - Keep the description short
-    """
+    private var eventDatetimePrompt: String {
+        let currentDate = Date()
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "YYYY"
+        let todayString = dateFormatter.string(from: currentDate)
+        
+        return """
+        You are a event date time extraction system. Your task is to analyze images and identify the start and end timings.
+        
+        INSTRUCTIONS:
+        - For dates/times: Convert relative references (tomorrow, next week, Monday) to actual dates based on today being \(todayString)
+        - Extract ONLY information contained within the image
+        - Return ONLY the raw JSON object - NO markdown formatting, NO code blocks, NO backticks, NO explanations
+        
+
+        OUTPUT REQUIREMENTS:
+        - Respond with ONLY the JSON object - no ```json``` formatting
+
+        JSON SCHEMA:
+        {
+          "start_date": "string (required, any date associated with the event) - YYYY-MM-DD",
+          "start_time": "string (required, any timing associated with the event) - HH:MM",
+          "end_date": "string (optional, ignore if not in image) - YYYY-MM-DD",
+          "end_time": "string (optional, ignore if not in image) - HH:MM"
+        }
+
+        CRITICAL: Return only the raw JSON object without any markdown formatting or code block syntax.
+        """
+    }
     
     var body: some View {
         NavigationStack {
@@ -81,14 +116,14 @@ struct ContentView: View {
                             responseSection
                         }
                         
-                        if let eventData {
-                            eventPreviewSection(eventData)
+                        if !eventData.isEmpty {
+                            eventsPreviewSection
                         }
                     }
                 }
                 .padding()
             }
-            .navigationTitle("Event Parser")
+            .navigationTitle("Kairos")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -164,7 +199,7 @@ struct ContentView: View {
         HStack(spacing: 12) {
             Button(action: {
                 selectedImage = nil
-                eventData = nil
+                eventData = []
                 model.output = ""
                 model.extractedEventData = nil
             }) {
@@ -220,6 +255,127 @@ struct ContentView: View {
             .background(Color.gray.opacity(0.1))
             .cornerRadius(8)
         }
+    }
+    
+    private var eventsPreviewSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Found \(eventData.count) Event\(eventData.count == 1 ? "" : "s")")
+                    .font(.headline)
+                Spacer()
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+            }
+            
+            ForEach(Array(eventData.enumerated()), id: \.offset) { index, event in
+                eventCard(event, index: index)
+            }
+            
+            Button(action: {
+                addAllEventsToCalendar()
+            }) {
+                Label("Add All to Calendar", systemImage: "calendar.badge.plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+        .cornerRadius(12)
+        .shadow(radius: 4)
+    }
+    
+    private func eventCard(_ event: EventData, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Event \(index + 1)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            HStack(alignment: .top) {
+                Image(systemName: "calendar")
+                    .foregroundColor(.blue)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Title")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(event.title)
+                        .font(.body)
+                        .fontWeight(.medium)
+                }
+            }
+            
+            if let location = event.location, !location.isEmpty {
+                HStack(alignment: .top) {
+                    Image(systemName: "location")
+                        .foregroundColor(.blue)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Location")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(location)
+                            .font(.body)
+                    }
+                }
+            }
+            
+            HStack(alignment: .top) {
+                Image(systemName: "clock")
+                    .foregroundColor(.blue)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Start")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(event.startDate)
+                        .font(.body)
+                }
+            }
+            
+            if let endDate = event.endDate {
+                HStack(alignment: .top) {
+                    Image(systemName: "clock.fill")
+                        .foregroundColor(.blue)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("End")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(endDate)
+                            .font(.body)
+                    }
+                }
+            }
+            
+            if let description = event.description, !description.isEmpty {
+                HStack(alignment: .top) {
+                    Image(systemName: "text.alignleft")
+                        .foregroundColor(.blue)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Description")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(description)
+                            .font(.body)
+                    }
+                }
+            }
+            
+            if event.allDay == true {
+                HStack {
+                    Image(systemName: "sun.max")
+                        .foregroundColor(.blue)
+                        .frame(width: 24)
+                    Text("All-day event")
+                        .font(.body)
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity)
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(8)
     }
     
     private func eventPreviewSection(_ event: EventData) -> some View {
@@ -337,7 +493,7 @@ struct ContentView: View {
         guard let selectedImage else { return }
         
         isProcessing = true
-        eventData = nil
+        eventData = []
         model.output = ""
         model.extractedEventData = nil
         
@@ -362,23 +518,62 @@ struct ContentView: View {
     private func parseEventData() {
         let output = model.output.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        if let jsonStartIndex = output.firstIndex(of: "{"),
-           let jsonEndIndex = output.lastIndex(of: "}") {
-            let jsonString = String(output[jsonStartIndex...jsonEndIndex])
-            
-            if let jsonData = jsonString.data(using: .utf8) {
-                do {
-                    let decoder = JSONDecoder()
-                    let event = try decoder.decode(EventData.self, from: jsonData)
-                    eventData = event
-                    model.extractedEventData = event
-                } catch {
-                    errorMessage = "Failed to parse event data: \(error.localizedDescription)"
-                    showingError = true
+        let arrayStartIndex = output.firstIndex(of: "[")
+        let objectStartIndex = output.firstIndex(of: "{")
+        let arrayEndIndex = output.lastIndex(of: "]")
+        let objectEndIndex = output.lastIndex(of: "}")
+        
+        var jsonString: String?
+        var isArray = false
+        
+        if let arrStart = arrayStartIndex, let arrEnd = arrayEndIndex {
+            if let objStart = objectStartIndex {
+                if arrStart < objStart {
+                    jsonString = String(output[arrStart...arrEnd])
+                    isArray = true
+                } else {
+                    if let objEnd = objectEndIndex {
+                        jsonString = String(output[objStart...objEnd])
+                        isArray = false
+                    }
                 }
+            } else {
+                jsonString = String(output[arrStart...arrEnd])
+                isArray = true
             }
-        } else {
+        } else if let objStart = objectStartIndex, let objEnd = objectEndIndex {
+            jsonString = String(output[objStart...objEnd])
+            isArray = false
+        }
+        
+        guard var jsonString = jsonString else {
             errorMessage = "No valid JSON found in the response. Please try again with a clearer image."
+            showingError = true
+            return
+        }
+        
+        if !isArray {
+            jsonString = "[" + jsonString + "]"
+        }
+        
+        guard let jsonData = jsonString.data(using: .utf8) else {
+            errorMessage = "Failed to convert response to data."
+            showingError = true
+            return
+        }
+        
+        do {
+            let decoder = JSONDecoder()
+            let events = try decoder.decode([EventData].self, from: jsonData)
+            if !events.isEmpty {
+                eventData = events
+                model.extractedEventData = events.first
+            } else {
+                errorMessage = "No events found in the response."
+                showingError = true
+            }
+        } catch {
+            errorMessage = "Failed to parse event data: \(error.localizedDescription)"
             showingError = true
         }
     }
@@ -390,6 +585,74 @@ struct ContentView: View {
                     showingSuccess = true
                 } else {
                     errorMessage = error?.localizedDescription ?? "Failed to add event to calendar"
+                    showingError = true
+                }
+            }
+        }
+    }
+    
+    private func addAllEventsToCalendar() {
+        let eventStore = EKEventStore()
+        
+        eventStore.requestFullAccessToEvents { granted, error in
+            guard granted, error == nil else {
+                DispatchQueue.main.async {
+                    errorMessage = error?.localizedDescription ?? "Calendar access denied"
+                    showingError = true
+                }
+                return
+            }
+            
+            var successCount = 0
+            var failureCount = 0
+            
+            for eventData in eventData {
+                let event = EKEvent(eventStore: eventStore)
+                event.title = eventData.title
+                event.calendar = eventStore.defaultCalendarForNewEvents
+                
+                if let location = eventData.location {
+                    event.location = location
+                }
+                
+                if let description = eventData.description {
+                    event.notes = description
+                }
+                
+                if let isAllDay = eventData.allDay, isAllDay {
+                    event.isAllDay = true
+                }
+                
+                if let startComponents = eventData.toDateComponents(from: eventData.startDate),
+                   let startDate = Calendar.current.date(from: startComponents) {
+                    event.startDate = startDate
+                    
+                    if let endDateString = eventData.endDate,
+                       let endComponents = eventData.toDateComponents(from: endDateString),
+                       let endDate = Calendar.current.date(from: endComponents) {
+                        event.endDate = endDate
+                    } else {
+                        let duration: TimeInterval = (eventData.allDay ?? false) ? 86400 : 3600
+                        event.endDate = startDate.addingTimeInterval(duration)
+                    }
+                }
+                
+                do {
+                    try eventStore.save(event, span: .thisEvent)
+                    successCount += 1
+                } catch {
+                    failureCount += 1
+                }
+            }
+            
+            DispatchQueue.main.async {
+                if failureCount == 0 {
+                    showingSuccess = true
+                } else if successCount > 0 {
+                    errorMessage = "Added \(successCount) event(s), failed to add \(failureCount) event(s)"
+                    showingError = true
+                } else {
+                    errorMessage = "Failed to add events to calendar"
                     showingError = true
                 }
             }

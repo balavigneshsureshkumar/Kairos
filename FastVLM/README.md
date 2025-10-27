@@ -39,13 +39,13 @@ To explore how the other models work for your use-case, simply re-run the `get_p
 1. Make the script executable
 
 ```shell
-chmod +x app/get_pretrained_mlx_model.sh
+chmod +x FastVLM/get_pretrained_mlx_model.sh
 ```
 
 2. Download FastVLM
 
 ```shell
-get_pretrained_mlx_model.sh --model 0.5b --dest model
+FastVLM/get_pretrained_mlx_model.sh --model 0.5b --dest model
 ```
 
 3. Open the app in Xcode, Build, and Run.

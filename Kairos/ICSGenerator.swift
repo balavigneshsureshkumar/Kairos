@@ -4,7 +4,7 @@ import EventKit
 class ICSGenerator {
     static func generateICS(from eventData: EventData) -> String {
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+        dateFormatter.dateFormat = "YYYYMMDD'T'HHMMSS"
         dateFormatter.timeZone = TimeZone(identifier: "UTC")
         
         let now = Date()
@@ -13,11 +13,11 @@ class ICSGenerator {
         var icsContent = """
         BEGIN:VCALENDAR
         VERSION:2.0
-        PRODID:-//Event Parser//EN
+        PRODID:-//Kairos//EN
         CALSCALE:GREGORIAN
         METHOD:PUBLISH
         BEGIN:VEVENT
-        UID:\(UUID().uuidString)@eventparser.app
+        UID:\(UUID().uuidString)@kairos.app
         DTSTAMP:\(dtstamp)
         SUMMARY:\(eventData.title)
         """
